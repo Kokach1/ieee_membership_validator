@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>IEEE Membership Validator</title>
   <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
   <div class="header">
     <h1>IEEE Membership Validator</h1>
@@ -26,6 +28,9 @@
       <div class="action-buttons">
         <button id="startBtn" class="btn btn-primary" disabled>
           ▶ Start Validation
+        </button>
+        <button id="cancelBtn" class="btn btn-cancel" disabled>
+          ✕ Cancel
         </button>
         <button id="exportBtn" class="btn btn-secondary" disabled>
           💾 Export Results
@@ -68,4 +73,5 @@
   <script src="lib/xlsx.full.min.js"></script>
   <script src="popup.js"></script>
 </body>
+
 </html>

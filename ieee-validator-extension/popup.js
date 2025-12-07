@@ -7,6 +7,7 @@ let pollInterval = null;
 const fileInput = document.getElementById('fileInput');
 const fileName = document.getElementById('fileName');
 const startBtn = document.getElementById('startBtn');
+const cancelBtn = document.getElementById('cancelBtn');
 const exportBtn = document.getElementById('exportBtn');
 const statusSection = document.getElementById('statusSection');
 const statusText = document.getElementById('statusText');
@@ -18,6 +19,7 @@ const errorMessage = document.getElementById('errorMessage');
 // File Upload Handler
 fileInput.addEventListener('change', handleFileUpload);
 startBtn.addEventListener('click', startValidation);
+cancelBtn.addEventListener('click', cancelValidation);
 exportBtn.addEventListener('click', exportResults);
 
 function handleFileUpload(e) {
@@ -105,6 +107,7 @@ async function startValidation() {
 
   // Update UI
   startBtn.disabled = true;
+  cancelBtn.disabled = false;
   exportBtn.disabled = true;
   statusSection.classList.add('active');
   resultsSection.classList.add('active');
@@ -120,6 +123,30 @@ async function startValidation() {
 
   // Start polling for updates
   startPolling();
+}
+
+async function cancelValidation() {
+  console.log('[POPUP] Cancelling validation');
+
+  const result = await chrome.storage.local.get('validation');
+  const state = result.validation;
+
+  if (state) {
+    state.active = false;
+    await chrome.storage.local.set({ validation: state });
+  }
+
+  if (pollInterval) {
+    clearInterval(pollInterval);
+    pollInterval = null;
+  }
+
+  statusSection.classList.remove('active');
+  startBtn.disabled = false;
+  cancelBtn.disabled = true;
+  exportBtn.disabled = false;
+
+  showError('Validation cancelled by user');
 }
 
 function startPolling() {
@@ -145,6 +172,7 @@ function startPolling() {
 
       statusSection.classList.remove('active');
       startBtn.disabled = false;
+      cancelBtn.disabled = true;
       exportBtn.disabled = false;
     }
   }, 500);
@@ -200,14 +228,22 @@ async function exportResults() {
     return;
   }
 
-  // Prepare data for export
-  const exportData = state.metadata.map(item => ({
-    membership_id: item.membership_id,
-    validity: state.results[item.membership_id] || 'Pending',
-    ...(item.name && { name: item.name }),
-    ...(item.email && { email: item.email }),
-    ...(item.dept && { dept: item.dept })
-  }));
+  // Prepare data for export - include ALL columns from original data
+  const exportData = state.metadata.map(item => {
+    const row = {
+      membership_id: item.membership_id,
+      validity: state.results[item.membership_id] || 'Pending'
+    };
+
+    // Add ALL other columns from original Excel
+    Object.keys(item).forEach(key => {
+      if (key !== 'membership_id') {
+        row[key] = item[key];
+      }
+    });
+
+    return row;
+  });
 
   // Create workbook
   const worksheet = XLSX.utils.json_to_sheet(exportData);
@@ -231,6 +267,7 @@ async function checkOngoingValidation() {
     statusSection.classList.add('active');
     resultsSection.classList.add('active');
     startBtn.disabled = true;
+    cancelBtn.disabled = false;
 
     // Resume polling
     startPolling();
