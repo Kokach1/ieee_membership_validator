@@ -1,8 +1,7 @@
-// popup.js - Extension popup logic
+// popup.js - Extension popup logic (Reload-based architecture)
 
 let membershipData = [];
-let validationResults = [];
-let isProcessing = false;
+let pollInterval = null;
 
 // DOM Elements
 const fileInput = document.getElementById('fileInput');
@@ -50,18 +49,13 @@ function handleFileUpload(e) {
         membership_id: String(row.membership_id || '').trim(),
         name: row.name || '',
         email: row.email || '',
-        dept: row.dept || '',
-        validity: 'Pending'
+        dept: row.dept || ''
       }));
-
-      validationResults = [...membershipData];
 
       startBtn.disabled = false;
       hideError();
 
-      // Initialize results table
-      updateResultsTable();
-      resultsSection.classList.add('active');
+      console.log('[POPUP] Loaded', membershipData.length, 'membership IDs');
 
     } catch (error) {
       showError('Failed to parse Excel file: ' + error.message);
@@ -82,106 +76,104 @@ function hideError() {
 }
 
 async function startValidation() {
-  if (isProcessing || membershipData.length === 0) return;
+  if (membershipData.length === 0) return;
 
-  // Check if we're on the correct page
+  // Get current tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-  console.log('[POPUP] Current tab:', tab.id, tab.url);
 
   if (!tab.url || !tab.url.includes('services24.ieee.org/membership-validator')) {
     showError('Please open the IEEE Membership Validator page first!');
     return;
   }
 
-  isProcessing = true;
+  console.log('[POPUP] Starting validation for', membershipData.length, 'IDs');
+
+  // Initialize validation state in storage
+  const membershipIds = membershipData.map(item => item.membership_id);
+
+  await chrome.storage.local.set({
+    validation: {
+      active: true,
+      currentIndex: 0,
+      currentId: null,  // Will be set by content script
+      total: membershipIds.length,
+      ids: membershipIds,
+      results: {},
+      metadata: membershipData  // Store full data for export
+    }
+  });
+
+  // Update UI
   startBtn.disabled = true;
   exportBtn.disabled = true;
   statusSection.classList.add('active');
+  resultsSection.classList.add('active');
 
-  // Reset results
-  validationResults = membershipData.map(item => ({ ...item, validity: 'Processing' }));
-  updateResultsTable();
-
-  // Send message to content script to start validation
-  console.log('[POPUP] Sending validation request for', membershipData.length, 'IDs to tab', tab.id);
-
-  chrome.tabs.sendMessage(tab.id, {
-    action: 'startValidation',
-    membershipIds: membershipData.map(item => item.membership_id)
-  }, (response) => {
+  // Tell content script to start
+  chrome.tabs.sendMessage(tab.id, { action: 'startValidation' }, (response) => {
     if (chrome.runtime.lastError) {
-      console.error('[POPUP] Send message error:', chrome.runtime.lastError.message);
-      showError('Cannot reach content script. Refresh the page and try again.');
-      resetUI();
+      console.error('[POPUP] Error:', chrome.runtime.lastError.message);
     } else {
-      console.log('[POPUP] Message sent successfully');
+      console.log('[POPUP] Validation started');
     }
   });
+
+  // Start polling for updates
+  startPolling();
 }
 
-// Listen for results from content script
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[POPUP] Received message:', message.action);
+function startPolling() {
+  // Poll storage every 500ms for updates
+  pollInterval = setInterval(async () => {
+    const result = await chrome.storage.local.get('validation');
+    const state = result.validation;
 
-  try {
-    if (message.action === 'validationResult') {
-      const { membershipId, validity, index, total } = message;
-      console.log(`[POPUP] Result: ${membershipId} = ${validity} (${index + 1}/${total})`);
+    if (!state) return;
 
-      // Update result
-      const resultIndex = validationResults.findIndex(r => r.membership_id === membershipId);
-      if (resultIndex !== -1) {
-        validationResults[resultIndex].validity = validity;
-      }
+    // Update progress
+    const processed = state.currentIndex;
+    const total = state.total;
 
-      // Update UI
-      updateResultsTable();
-      updateProgress(index + 1, total);
-    }
+    updateProgress(processed, total);
+    updateResultsTable(state.results, state.metadata);
 
-    if (message.action === 'validationComplete') {
+    // Check if done
+    if (!state.active) {
       console.log('[POPUP] Validation complete');
-      isProcessing = false;
+      clearInterval(pollInterval);
+      pollInterval = null;
+
       statusSection.classList.remove('active');
+      startBtn.disabled = false;
       exportBtn.disabled = false;
     }
+  }, 500);
+}
 
-    if (message.action === 'validationError') {
-      console.error('[POPUP] Validation error:', message.error);
-      showError(message.error);
-      resetUI();
-    }
-  } catch (error) {
-    console.error('[POPUP] Error handling message:', error);
-    showError('Internal error: ' + error.message);
-  }
-});
-
-function updateResultsTable() {
+function updateResultsTable(results, metadata) {
   resultsBody.innerHTML = '';
 
-  validationResults.forEach(result => {
+  // Display all IDs with their current status
+  metadata.forEach(item => {
     const row = document.createElement('tr');
 
     const idCell = document.createElement('td');
-    idCell.textContent = result.membership_id;
+    idCell.textContent = item.membership_id;
 
     const validityCell = document.createElement('td');
     const badge = document.createElement('span');
-    badge.textContent = result.validity;
 
-    if (result.validity === 'Valid') {
+    const validity = results[item.membership_id] || 'Pending';
+    badge.textContent = validity;
+
+    if (validity === 'Valid') {
       badge.className = 'validity-valid';
-    } else if (result.validity === 'Invalid') {
+    } else if (validity === 'Invalid') {
       badge.className = 'validity-invalid';
-    } else if (result.validity === 'Error') {
+    } else if (validity === 'Error') {
       badge.className = 'validity-error';
-    } else if (result.validity === 'Processing') {
-      badge.className = 'validity-processing';
     } else {
-      badge.className = 'validity-error';
-      badge.textContent = 'Pending';
+      badge.className = 'validity-processing';
     }
 
     validityCell.appendChild(badge);
@@ -193,28 +185,28 @@ function updateResultsTable() {
 }
 
 function updateProgress(current, total) {
-  const percentage = Math.round((current / total) * 100);
+  const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
   progressFill.style.width = percentage + '%';
   progressFill.textContent = percentage + '%';
   statusText.innerHTML = `<span class="spinner"></span>Processing ${current} of ${total}...`;
 }
 
-function resetUI() {
-  isProcessing = false;
-  startBtn.disabled = false;
-  statusSection.classList.remove('active');
-}
+async function exportResults() {
+  const result = await chrome.storage.local.get('validation');
+  const state = result.validation;
 
-function exportResults() {
-  if (validationResults.length === 0) return;
+  if (!state || !state.metadata) {
+    showError('No results to export');
+    return;
+  }
 
   // Prepare data for export
-  const exportData = validationResults.map(result => ({
-    membership_id: result.membership_id,
-    validity: result.validity,
-    ...(result.name && { name: result.name }),
-    ...(result.email && { email: result.email }),
-    ...(result.dept && { dept: result.dept })
+  const exportData = state.metadata.map(item => ({
+    membership_id: item.membership_id,
+    validity: state.results[item.membership_id] || 'Pending',
+    ...(item.name && { name: item.name }),
+    ...(item.email && { email: item.email }),
+    ...(item.dept && { dept: item.dept })
   }));
 
   // Create workbook
@@ -224,4 +216,26 @@ function exportResults() {
 
   // Download file
   XLSX.writeFile(workbook, 'validated_members.xlsx');
+
+  console.log('[POPUP] Exported', exportData.length, 'results');
 }
+
+// Check for ongoing validation on popup open
+async function checkOngoingValidation() {
+  const result = await chrome.storage.local.get('validation');
+  const state = result.validation;
+
+  if (state && state.active) {
+    console.log('[POPUP] Resuming monitoring of active validation');
+
+    statusSection.classList.add('active');
+    resultsSection.classList.add('active');
+    startBtn.disabled = true;
+
+    // Resume polling
+    startPolling();
+  }
+}
+
+// Run on popup load
+checkOngoingValidation();
