@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IEEE Membership Validator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="header">
+    <h1>IEEE Membership Validator</h1>
+    <p>Automate membership validation from Excel</p>
+  </div>
+
+  <div class="container">
+    <!-- Controls Section -->
+    <div class="controls">
+      <div class="file-upload">
+        <label for="fileInput" class="upload-btn">
+          📁 Upload Excel File
+        </label>
+        <input type="file" id="fileInput" accept=".xlsx,.xls" />
+        <span class="file-name" id="fileName">No file selected</span>
+      </div>
+
+      <div class="action-buttons">
+        <button id="startBtn" class="btn btn-primary" disabled>
+          ▶ Start Validation
+        </button>
+        <button id="exportBtn" class="btn btn-secondary" disabled>
+          💾 Export Results
+        </button>
+      </div>
+
+      <div class="error-message" id="errorMessage"></div>
+    </div>
+
+    <!-- Status Section -->
+    <div class="status" id="statusSection">
+      <div class="status-text" id="statusText">
+        <span class="spinner"></span>
+        Processing...
+      </div>
+      <div class="progress-bar">
+        <div class="progress-fill" id="progressFill" style="width: 0%">0%</div>
+      </div>
+    </div>
+
+    <!-- Results Section -->
+    <div class="results" id="resultsSection">
+      <h2>Validation Results</h2>
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr>
+              <th>Membership ID</th>
+              <th>Validity</th>
+            </tr>
+          </thead>
+          <tbody id="resultsBody">
+            <!-- Results will be populated here -->
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script src="lib/xlsx.full.min.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
