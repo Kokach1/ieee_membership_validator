@@ -84,10 +84,11 @@ function handleFileUpload(e) {
 
       if (duplicates.length > 0) {
         showError(`⚠️ Warning: Found ${duplicates.length} duplicate ID(s): ${duplicates.slice(0, 3).join(', ')}${duplicates.length > 3 ? '...' : ''}`);
+      } else {
+        hideError();
       }
 
       startBtn.disabled = false;
-      hideError();
 
       console.log('[POPUP] Loaded', membershipData.length, 'membership IDs');
       if (duplicates.length > 0) {
