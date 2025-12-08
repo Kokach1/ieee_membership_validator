@@ -47,12 +47,14 @@ function handleFileUpload(e) {
         return;
       }
 
-      membershipData = jsonData.map(row => ({
-        membership_id: String(row.membership_id || '').trim(),
-        name: row.name || '',
-        email: row.email || '',
-        dept: row.dept || ''
-      }));
+      // Store ALL columns from Excel - preserve entire row
+      membershipData = jsonData.map(row => {
+        // Convert membership_id to string, keep everything else
+        return {
+          ...row,  // Spread all original columns
+          membership_id: String(row.membership_id || '').trim()
+        };
+      });
 
       startBtn.disabled = false;
       hideError();
