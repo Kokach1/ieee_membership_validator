@@ -17,12 +17,15 @@
   <div class="container">
     <!-- Controls Section -->
     <div class="controls">
-      <div class="file-upload">
-        <label for="fileInput" class="upload-btn">
-          📁 Upload Excel File
-        </label>
-        <input type="file" id="fileInput" accept=".xlsx,.xls" />
-        <span class="file-name" id="fileName">No file selected</span>
+      <div class="file-upload" id="dropZone">
+        <div class="drop-zone-content">
+          <p class="drop-zone-text">📁 Drag Excel file here or click to browse</p>
+          <label for="fileInput" class="upload-btn">
+            Choose File
+          </label>
+          <input type="file" id="fileInput" accept=".xlsx,.xls" />
+          <span class="file-name" id="fileName">No file selected</span>
+        </div>
       </div>
 
       <div class="action-buttons">
@@ -38,6 +41,33 @@
       </div>
 
       <div class="error-message" id="errorMessage"></div>
+    </div>
+
+    <!-- Summary Dashboard -->
+    <div class="summary-dashboard" id="summaryDashboard">
+      <h2>📊 Validation Summary</h2>
+      <div class="stats-grid">
+        <div class="stat-card valid">
+          <div class="stat-number" id="validCount">0</div>
+          <div class="stat-label">Valid</div>
+        </div>
+        <div class="stat-card invalid">
+          <div class="stat-number" id="invalidCount">0</div>
+          <div class="stat-label">Invalid</div>
+        </div>
+        <div class="stat-card error">
+          <div class="stat-number" id="errorCount">0</div>
+          <div class="stat-label">Errors</div>
+        </div>
+        <div class="stat-card total">
+          <div class="stat-number" id="totalCount">0</div>
+          <div class="stat-label">Total</div>
+        </div>
+      </div>
+      <div class="success-rate">
+        <div class="rate-label">Success Rate:</div>
+        <div class="rate-value" id="successRate">0%</div>
+      </div>
     </div>
 
     <!-- Status Section -->

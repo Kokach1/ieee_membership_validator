@@ -2,6 +2,7 @@
 
 let membershipData = [];
 let pollInterval = null;
+let validationStartTime = null;
 
 // DOM Elements
 const fileInput = document.getElementById('fileInput');
@@ -16,11 +17,25 @@ const resultsSection = document.getElementById('resultsSection');
 const resultsBody = document.getElementById('resultsBody');
 const errorMessage = document.getElementById('errorMessage');
 
+// New feature elements
+const dropZone = document.getElementById('dropZone');
+const summaryDashboard = document.getElementById('summaryDashboard');
+const validCount = document.getElementById('validCount');
+const invalidCount = document.getElementById('invalidCount');
+const errorCount = document.getElementById('errorCount');
+const totalCount = document.getElementById('totalCount');
+const successRate = document.getElementById('successRate');
+
 // File Upload Handler
 fileInput.addEventListener('change', handleFileUpload);
 startBtn.addEventListener('click', startValidation);
 cancelBtn.addEventListener('click', cancelValidation);
 exportBtn.addEventListener('click', exportResults);
+
+// Drag and Drop handlers
+dropZone.addEventListener('dragover', handleDragOver);
+dropZone.addEventListener('dragleave', handleDragLeave);
+dropZone.addEventListener('drop', handleDrop);
 
 function handleFileUpload(e) {
   const file = e.target.files[0];
@@ -49,17 +64,35 @@ function handleFileUpload(e) {
 
       // Store ALL columns from Excel - preserve entire row
       membershipData = jsonData.map(row => {
-        // Convert membership_id to string, keep everything else
         return {
-          ...row,  // Spread all original columns
+          ...row,
           membership_id: String(row.membership_id || '').trim()
         };
       });
+
+      // FEATURE 1: Check for duplicate IDs
+      const idCounts = {};
+      const duplicates = [];
+
+      membershipData.forEach(item => {
+        const id = item.membership_id;
+        idCounts[id] = (idCounts[id] || 0) + 1;
+        if (idCounts[id] === 2) {
+          duplicates.push(id);
+        }
+      });
+
+      if (duplicates.length > 0) {
+        showError(`⚠️ Warning: Found ${duplicates.length} duplicate ID(s): ${duplicates.slice(0, 3).join(', ')}${duplicates.length > 3 ? '...' : ''}`);
+      }
 
       startBtn.disabled = false;
       hideError();
 
       console.log('[POPUP] Loaded', membershipData.length, 'membership IDs');
+      if (duplicates.length > 0) {
+        console.warn('[POPUP] Duplicates:', duplicates);
+      }
 
     } catch (error) {
       showError('Failed to parse Excel file: ' + error.message);
@@ -67,6 +100,33 @@ function handleFileUpload(e) {
   };
 
   reader.readAsArrayBuffer(file);
+}
+
+// FEATURE 3: Drag & Drop Functions
+function handleDragOver(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  dropZone.classList.add('drag-over');
+}
+
+function handleDragLeave(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  dropZone.classList.remove('drag-over');
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  dropZone.classList.remove('drag-over');
+
+  const files = e.dataTransfer.files;
+  if (files.length > 0 && files[0].name.match(/\.(xlsx|xls)$/i)) {
+    fileInput.files = files;
+    handleFileUpload({ target: { files: files } });
+  } else {
+    showError('Please drop an Excel file (.xlsx or .xls)');
+  }
 }
 
 function showError(message) {
@@ -82,7 +142,6 @@ function hideError() {
 async function startValidation() {
   if (membershipData.length === 0) return;
 
-  // Get current tab
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   if (!tab.url || !tab.url.includes('services24.ieee.org/membership-validator')) {
@@ -92,29 +151,33 @@ async function startValidation() {
 
   console.log('[POPUP] Starting validation for', membershipData.length, 'IDs');
 
-  // Initialize validation state in storage
+  validationStartTime = Date.now();
+
   const membershipIds = membershipData.map(item => item.membership_id);
 
   await chrome.storage.local.set({
     validation: {
       active: true,
       currentIndex: 0,
-      currentId: null,  // Will be set by content script
+      currentId: null,
       total: membershipIds.length,
       ids: membershipIds,
       results: {},
-      metadata: membershipData  // Store full data for export
+      metadata: membershipData
     }
   });
 
-  // Update UI
   startBtn.disabled = true;
   cancelBtn.disabled = false;
   exportBtn.disabled = true;
   statusSection.classList.add('active');
   resultsSection.classList.add('active');
+  summaryDashboard.classList.add('active');
 
-  // Tell content script to start
+  // FEATURE 2: Set badge
+  chrome.action.setBadgeText({ text: '0' });
+  chrome.action.setBadgeBackgroundColor({ color: '#00529B' });
+
   chrome.tabs.sendMessage(tab.id, { action: 'startValidation' }, (response) => {
     if (chrome.runtime.lastError) {
       console.error('[POPUP] Error:', chrome.runtime.lastError.message);
@@ -123,7 +186,6 @@ async function startValidation() {
     }
   });
 
-  // Start polling for updates
   startPolling();
 }
 
@@ -148,25 +210,30 @@ async function cancelValidation() {
   cancelBtn.disabled = true;
   exportBtn.disabled = false;
 
+  chrome.action.setBadgeText({ text: '' });
+
   showError('Validation cancelled by user');
 }
 
 function startPolling() {
-  // Poll storage every 500ms for updates
   pollInterval = setInterval(async () => {
     const result = await chrome.storage.local.get('validation');
     const state = result.validation;
 
     if (!state) return;
 
-    // Update progress
     const processed = state.currentIndex;
     const total = state.total;
 
     updateProgress(processed, total);
     updateResultsTable(state.results, state.metadata);
 
-    // Check if done
+    // FEATURE 4: Update dashboard
+    updateSummaryDashboard(state.results, state.metadata);
+
+    // FEATURE 2: Update badge
+    chrome.action.setBadgeText({ text: String(processed) });
+
     if (!state.active) {
       console.log('[POPUP] Validation complete');
       clearInterval(pollInterval);
@@ -176,6 +243,11 @@ function startPolling() {
       startBtn.disabled = false;
       cancelBtn.disabled = true;
       exportBtn.disabled = false;
+
+      // FEATURE 2: Show completion notification
+      showCompletionNotification(state.results, state.metadata);
+
+      setTimeout(() => chrome.action.setBadgeText({ text: '' }), 5000);
     }
   }, 500);
 }
@@ -183,7 +255,6 @@ function startPolling() {
 function updateResultsTable(results, metadata) {
   resultsBody.innerHTML = '';
 
-  // Display all IDs with their current status
   metadata.forEach(item => {
     const row = document.createElement('tr');
 
@@ -214,6 +285,52 @@ function updateResultsTable(results, metadata) {
   });
 }
 
+// FEATURE 4: Update Summary Dashboard
+function updateSummaryDashboard(results, metadata) {
+  let valid = 0, invalid = 0, errors = 0;
+
+  Object.values(results).forEach(result => {
+    if (result === 'Valid') valid++;
+    else if (result === 'Invalid') invalid++;
+    else if (result === 'Error') errors++;
+  });
+
+  const total = metadata.length;
+  const processed = Object.keys(results).length;
+  const successRateValue = processed > 0 ? Math.round((valid / processed) * 100) : 0;
+
+  validCount.textContent = valid;
+  invalidCount.textContent = invalid;
+  errorCount.textContent = errors;
+  totalCount.textContent = total;
+  successRate.textContent = `${successRateValue}%`;
+}
+
+// FEATURE 2: Completion Notification
+function showCompletionNotification(results, metadata) {
+  let valid = 0, invalid = 0;
+
+  Object.values(results).forEach(result => {
+    if (result === 'Valid') valid++;
+    else if (result === 'Invalid') invalid++;
+  });
+
+  const total = metadata.length;
+  const duration = validationStartTime ? Math.round((Date.now() - validationStartTime) / 1000) : 0;
+
+  chrome.notifications.create({
+    type: 'basic',
+    iconUrl: 'icon128.png',
+    title: 'IEEE Validation Complete',
+    message: `✅ Processed ${total} IDs in ${duration}s\\n${valid} Valid | ${invalid} Invalid`,
+    priority: 2
+  });
+
+  // Optional sound (browser beep)
+  const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLI fds==');
+  audio.play().catch(() => { }); // Play if allowed
+}
+
 function updateProgress(current, total) {
   const percentage = total > 0 ? Math.round((current / total) * 100) : 0;
   progressFill.style.width = percentage + '%';
@@ -230,14 +347,12 @@ async function exportResults() {
     return;
   }
 
-  // Prepare data for export - include ALL columns from original data
   const exportData = state.metadata.map(item => {
     const row = {
       membership_id: item.membership_id,
       validity: state.results[item.membership_id] || 'Pending'
     };
 
-    // Add ALL other columns from original Excel
     Object.keys(item).forEach(key => {
       if (key !== 'membership_id') {
         row[key] = item[key];
@@ -247,18 +362,15 @@ async function exportResults() {
     return row;
   });
 
-  // Create workbook
   const worksheet = XLSX.utils.json_to_sheet(exportData);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Validation Results');
 
-  // Download file
   XLSX.writeFile(workbook, 'validated_members.xlsx');
 
   console.log('[POPUP] Exported', exportData.length, 'results');
 }
 
-// Check for ongoing validation on popup open
 async function checkOngoingValidation() {
   const result = await chrome.storage.local.get('validation');
   const state = result.validation;
@@ -268,13 +380,12 @@ async function checkOngoingValidation() {
 
     statusSection.classList.add('active');
     resultsSection.classList.add('active');
+    summaryDashboard.classList.add('active');
     startBtn.disabled = true;
     cancelBtn.disabled = false;
 
-    // Resume polling
     startPolling();
   }
 }
 
-// Run on popup load
 checkOngoingValidation();

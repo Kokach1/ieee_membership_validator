@@ -6,7 +6,8 @@
     "permissions": [
         "activeTab",
         "scripting",
-        "storage"
+        "storage",
+        "notifications"
     ],
     "host_permissions": [
         "https://services24.ieee.org/*"
