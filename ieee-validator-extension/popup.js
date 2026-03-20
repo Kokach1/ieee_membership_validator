@@ -163,6 +163,7 @@ async function startValidation() {
       total: membershipIds.length,
       ids: membershipIds,
       results: {},
+      societies: {},
       metadata: membershipData
     }
   });
@@ -226,7 +227,7 @@ function startPolling() {
     const total = state.total;
 
     updateProgress(processed, total);
-    updateResultsTable(state.results, state.metadata);
+    updateResultsTable(state.results, state.metadata, state.societies);
 
     // FEATURE 4: Update dashboard
     updateSummaryDashboard(state.results, state.metadata);
@@ -252,8 +253,11 @@ function startPolling() {
   }, 500);
 }
 
-function updateResultsTable(results, metadata) {
+function updateResultsTable(results, metadata, societies) {
   resultsBody.innerHTML = '';
+
+  // Ensure societies object exists
+  const societyData = societies || {};
 
   metadata.forEach(item => {
     const row = document.createElement('tr');
@@ -279,8 +283,15 @@ function updateResultsTable(results, metadata) {
 
     validityCell.appendChild(badge);
 
+    // Society column
+    const societyCell = document.createElement('td');
+    const societyValue = societyData[item.membership_id];
+    societyCell.textContent = societyValue !== undefined && societyValue !== null ? societyValue : (validity === 'Pending' ? '' : 'null');
+    societyCell.style.fontSize = '12px';
+
     row.appendChild(idCell);
     row.appendChild(validityCell);
+    row.appendChild(societyCell);
     resultsBody.appendChild(row);
   });
 }
@@ -350,7 +361,8 @@ async function exportResults() {
   const exportData = state.metadata.map(item => {
     const row = {
       membership_id: item.membership_id,
-      validity: state.results[item.membership_id] || 'Pending'
+      validity: state.results[item.membership_id] || 'Pending',
+      society: (state.societies && state.societies[item.membership_id] !== undefined) ? (state.societies[item.membership_id] || 'null') : 'null'
     };
 
     Object.keys(item).forEach(key => {

@@ -17,7 +17,8 @@ const SELECTORS = {
 // Result detection patterns
 const PATTERNS = {
     VALID: 'Membership status: Active',
-    INVALID: 'Error: Member not found or membership status is not active.'
+    INVALID: 'Error: Member not found or membership status is not active.',
+    SOCIETY_LABEL: 'Society membership(s):'
 };
 
 // Main function - runs on every page load
@@ -35,6 +36,11 @@ async function init() {
 
     console.log('[CONTENT] Active validation detected:', state.currentIndex + 1, '/', state.total);
 
+    // Initialize societies object if missing (backward compat)
+    if (!state.societies) {
+        state.societies = {};
+    }
+
     // Check if we just submitted an ID (not the initial load)
     if (state.currentId) {
         console.log('[CONTENT] Reading result for ID:', state.currentId);
@@ -45,6 +51,15 @@ async function init() {
 
         // Save the result
         state.results[state.currentId] = validity;
+
+        // Extract society info only for valid members
+        if (validity === 'Valid') {
+            const society = detectSocietyFromPage();
+            state.societies[state.currentId] = society;
+            console.log('[CONTENT] Society:', society);
+        } else {
+            state.societies[state.currentId] = null;
+        }
 
         // Move to next ID
         state.currentIndex++;
@@ -85,6 +100,44 @@ function detectResultFromPage() {
 
     // If we can't detect, assume error
     return 'Error';
+}
+
+// Detect society membership(s) from the current page
+function detectSocietyFromPage() {
+    const pageText = document.body.innerText;
+
+    if (!pageText.includes(PATTERNS.SOCIETY_LABEL)) {
+        return null;
+    }
+
+    try {
+        // Get the text after "Society membership(s):"
+        const afterLabel = pageText.split(PATTERNS.SOCIETY_LABEL)[1];
+        if (!afterLabel) return null;
+
+        // Only look at the first 10 lines after the label to avoid footer
+        const lines = afterLabel.split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .slice(0, 10);
+
+        // Only keep lines that contain "IEEE" — all society names start with it
+        const societies = [];
+        for (const line of lines) {
+            // Stop at footer boundary
+            if (line.includes('About IEEE')) break;
+            const cleaned = line.replace(/^[•\-\*\s]+/, '').trim();
+            if (cleaned.includes('IEEE')) {
+                societies.push(cleaned);
+            }
+        }
+
+        if (societies.length === 0) return null;
+        return societies.join(', ');
+    } catch (error) {
+        console.error('[CONTENT] Error detecting society:', error);
+        return null;
+    }
 }
 
 // Submit a membership ID
